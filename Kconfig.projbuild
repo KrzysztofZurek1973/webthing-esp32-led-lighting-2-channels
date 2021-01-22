@@ -1,0 +1,26 @@
+menu "LED 2 channels config"
+		
+config CHANNEL_A_GPIO
+	int "GPIO number for channel A"
+	range 0 34
+	default 18
+	help
+		It will be visible for compiler as CONFIG_CHANNEL_A_GPIO
+		
+		Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used.
+
+		GPIOs 35-39 are input-only so cannot be used to drive the relay.
+
+config CHANNEL_B_GPIO
+	int "GPIO number for channel B"
+	range 0 34
+	default 19
+	help
+		It will be visible for compiler as CONFIG_CHANNEL_B_GPIO
+		
+		Some GPIOs are used for other purposes (flash connections, etc.) and cannot be used.
+
+		GPIOs 35-39 are input-only so cannot be used to drive the relay.		
+
+
+endmenu
