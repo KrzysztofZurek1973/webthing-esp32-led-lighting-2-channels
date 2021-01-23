@@ -369,7 +369,7 @@ void timer_fun(TimerHandle_t xTimer){
 	
 	if (state_changed == true){
 		inform_all_subscribers_prop(prop_on);
-		write_nvs_data();
+		//write_nvs_data();
 	}
 }
 
