@@ -131,7 +131,7 @@ at_type_t timer_input_attype;
 void leds_fun(void *param); //thread function
 
 //other functions
-void read_nvs_data(void);
+void read_nvs_data(bool read_default);
 void write_nvs_data(void);
 
 
@@ -309,7 +309,7 @@ int8_t set_on_off(char *new_value_str){
 		//	ledc_stop(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_A, 0);
 		//	ledc_stop(LEDC_HIGH_SPEED_MODE, LEDC_CHANNEL_B, 0);
 		//}
-		if (brgh == 0){
+		if (device_is_on == false){
 			write_nvs_data();
 		}
 	}
@@ -369,7 +369,22 @@ void timer_fun(TimerHandle_t xTimer){
 	
 	if (state_changed == true){
 		inform_all_subscribers_prop(prop_on);
-		//write_nvs_data();
+		//copy current poropeties values
+		channel_t prev_cc = current_channel;
+		int32_t prev_fade_time = fade_time;
+		int32_t prev_brgh = brightness;
+		read_nvs_data(false);
+		//if any of the properties is changed inform clients
+		if (prev_cc != current_channel){
+			prop_channel -> value = channel_tab[current_channel];
+			inform_all_subscribers_prop(prop_channel);
+		}
+		if (prev_fade_time != fade_time){
+			inform_all_subscribers_prop(prop_fade_time);
+		}
+		if (prev_brgh != brightness){
+			inform_all_subscribers_prop(prop_brgh);
+		}
 	}
 }
 
@@ -709,7 +724,7 @@ void init_ledc(void){
  * ****************************************************************/
 thing_t *init_led_2_channels(void){
 
-	read_nvs_data();
+	read_nvs_data(true);
 	prev_current_channel = current_channel;
 	
 	init_ledc();
@@ -854,17 +869,19 @@ thing_t *init_led_2_channels(void){
  *  - current channel
  *
  * **************************************************************/
-void read_nvs_data(void){
+void read_nvs_data(bool read_default){
 	esp_err_t err;
 	nvs_handle storage = 0;
 
-	//default values
-	current_channel = CH_AB;
-	brightness = 20;
-	fade_time = 2000;
+	if (read_default == true){
+		//default values
+		current_channel = CH_AB;
+		brightness = 20;
+		fade_time = 2000;
+	}
 
 	// Open
-	printf("Reading NVS data... ");
+	//printf("Reading NVS data... ");
 
 	err = nvs_open("storage", NVS_READONLY, &storage);
 	if (err != ESP_OK) {
