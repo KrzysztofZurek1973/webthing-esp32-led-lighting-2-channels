@@ -40,7 +40,8 @@ typedef enum {CHANNEL = 0, BRIGHTNESS = 1, FADE = 2} nvs_data_type_t;
 xSemaphoreHandle led_mux;
 xTaskHandle led_task;
 
-static int32_t DRAM_ATTR fade_counter = 0;
+static bool DRAM_ATTR fade_is_running = false;
+//static int32_t DRAM_ATTR fade_counter = 0;
 static bool init_data_sent = false;
 static bool timer_is_running = false;
 static channel_t current_channel, prev_current_channel;
@@ -52,15 +53,14 @@ thing_t *leds = NULL;
 
 char leds_id_str[] = "2 leds";
 char leds_attype_str[] = "Light";
-char leds_disc[] = "Leds 2 channels";
+char leds_disc[] = "Dimmable leds, 2 channels";
 at_type_t leds_type;
 
 //------  property "on" - ON/OFF state
 static bool device_is_on = false;
 property_t *prop_on;
 at_type_t on_prop_type;
-int8_t set_on_off(char *new_value_str); //switch ON/OFF
-
+int16_t set_on_off(char *new_value_str); //switch ON/OFF
 char on_prop_id[] = "on";
 char on_prop_disc[] = "on-off state";
 char on_prop_attype_str[] = "OnOffProperty";
@@ -70,8 +70,7 @@ char on_prop_title[] = "ON/OFF";
 property_t *prop_channel;
 at_type_t channel_prop_type;
 enum_item_t enum_ch_A, enum_ch_B, enum_ch_AB;
-int8_t set_channel(char *new_value_str);
-
+int16_t set_channel(char *new_value_str);
 char channel_prop_id[] = "channel";
 char channel_prop_disc[] = "Channel";
 char channel_prop_attype_str[] = "ChannelProperty";
@@ -83,16 +82,16 @@ property_t *prop_daily_on_time;
 at_type_t daily_on_prop_type;
 static int daily_on_time_min = 0, daily_on_time_sec = 0;
 static time_t on_time_last_update = 0;
-static TimerHandle_t timer = NULL;
 void update_on_time(bool);
-
-char daily_on_prop_id[] = "daily_on";
+char daily_on_prop_id[] = "daily-on";
 char daily_on_prop_disc[] = "amount of time device is ON";
 char daily_on_prop_attype_str[] = "LevelProperty";
 char daily_on_prop_unit[] = "min";
 char daily_on_prop_title[] = "ON minutes";
 
 //------  property "brightness"
+static TimerHandle_t fade_timer = NULL;
+void fade_timer_fun(TimerHandle_t xTimer);
 static int32_t brightness; //0..100 in percent
 property_t *prop_brgh;
 at_type_t brgh_prop_type;
@@ -106,16 +105,16 @@ char brgh_prop_title[] = "Brightness";
 static int32_t fade_time; //10..10000 ms
 property_t *prop_fade_time;
 at_type_t fade_time_prop_type;
-char fade_time_id[] = "fade_time";
+char fade_time_id[] = "fade-time";
 char fade_time_prop_disc[] = "Fade time in ms";
 char fade_time_prop_attype_str[] = "LevelProperty";
 char fade_time_prop_unit[] = "ms";
 char fade_time_prop_title[] = "Fade time";
 
 //------ action "timer"
+static TimerHandle_t timer = NULL;
 action_t *timer_action;
 int8_t timer_run(char *inputs);
-
 char timer_id[] = "timer";
 char timer_title[] = "Timer";
 char timer_desc[] = "Turn ON device for specified period of time";
@@ -153,25 +152,55 @@ int8_t fade_up_channel(ledc_channel_t ch, int32_t brgh, int32_t ft){
 	else{
 		duty = 0;
 	}
-	fade_counter++;
+	//fade_counter++;
 	ledc_set_fade_with_time(LEDC_HIGH_SPEED_MODE, ch, duty, (uint32_t)ft);
     ledc_fade_start(LEDC_HIGH_SPEED_MODE, ch, LEDC_FADE_NO_WAIT);
-    //printf("fade_up, counter: %i\n", fade_counter);
+    
+    if (fade_is_running == false){
+    	fade_is_running = true;
+    	//unblock "fade_is_ruuning" after fade finished + 1 sec
+   		fade_timer = xTimerCreate("fade_timer",
+								pdMS_TO_TICKS(ft) + 5,
+								pdFALSE,
+								pdFALSE,
+								fade_timer_fun);
+
+	
+		if (xTimerStart(fade_timer, 0) == pdFAIL){
+			printf("fade timer failed\n");
+		}
+	}
     
     return 1;
 }
 
 
-/* ****************************************************************
+/*****************************************
  *
- * set brightness
+ * fade timer finished
  *
- * ****************************************************************/
-int8_t fade_time_set(char *new_value_str){
-	int32_t ft;
+ ******************************************/
+void fade_timer_fun(TimerHandle_t xTimer){
 	
 	xSemaphoreTake(led_mux, portMAX_DELAY);
-	if (fade_counter != 0){
+	fade_is_running = false;
+	xSemaphoreGive(led_mux);
+	
+	xTimerDelete(xTimer, 10); //delete timer
+}
+
+
+/* ****************************************************************
+ *
+ * set fading time in milisecond, range 100 .. 10000 msec
+ *
+ * ****************************************************************/
+int16_t fade_time_set(char *new_value_str){
+	int32_t ft;
+	int16_t result = 0;
+	
+	xSemaphoreTake(led_mux, portMAX_DELAY);
+	if (fade_is_running == true){
 		xSemaphoreGive(led_mux);
 		return -1;
 	}
@@ -183,11 +212,14 @@ int8_t fade_time_set(char *new_value_str){
 	else if (ft < 100){
 		ft = 100;
 	}
-	fade_time = ft;
-	
+
+	if (fade_time != ft){
+		fade_time = ft;
+		result = 1;
+	}
 	xSemaphoreGive(led_mux);
 
-	return 1;
+	return result;
 }
 
 
@@ -195,13 +227,19 @@ int8_t fade_time_set(char *new_value_str){
  *
  * set brightness
  *
+ * output:
+ *		0 - value not changed
+ *		1 - new value set, all clients will be informed
+ *	   -1 - error
+ *
  * ****************************************************************/
-int8_t brightness_set(char *new_value_str){
+int16_t brightness_set(char *new_value_str){
 	int32_t brgh;
+	int16_t result = 0;
 	
 	xSemaphoreTake(led_mux, portMAX_DELAY);
 	
-	if (fade_counter != 0){
+	if (fade_is_running == true){
 		xSemaphoreGive(led_mux);
 		return -1;
 	}
@@ -214,7 +252,10 @@ int8_t brightness_set(char *new_value_str){
 		brgh = 0;
 	}
 
-	brightness = brgh;
+	if (brightness != brgh){
+		brightness = brgh;
+		result = 1;
+	}
 	
 	//set new brightness if device is on
 	if (device_is_on == true){
@@ -238,10 +279,10 @@ int8_t brightness_set(char *new_value_str){
 				fade_up_channel(LEDC_CHANNEL_B, brgh, fade_time);
 		}
 	}
-	fade_counter = 0;
+	//fade_counter = 0;
 	xSemaphoreGive(led_mux);
 
-	return 1;
+	return result;
 }
 
 
@@ -249,14 +290,19 @@ int8_t brightness_set(char *new_value_str){
  *
  * turn the device ON or OFF
  *
+ * output:
+ *		0 - value not changed
+ *		1 - new value set, all clients will be informed
+ *	   -1 - error
+ *
  * *****************************************************************/
-int8_t set_on_off(char *new_value_str){
+int16_t set_on_off(char *new_value_str){
 	int32_t brgh = 0;
 	bool state_change = false;
-	int8_t res = 1;
+	int16_t result = 0;
 
 	xSemaphoreTake(led_mux, portMAX_DELAY);
-	if (fade_counter != 0){
+	if (fade_is_running == true){
 		//fade action is running
 		xSemaphoreGive(led_mux);
 		return -1;
@@ -312,16 +358,17 @@ int8_t set_on_off(char *new_value_str){
 		if (device_is_on == false){
 			write_nvs_data();
 		}
+		result = 1;
 	}
 	else{
-		res = -1;
+		result = -1;
 	}
 	
-	fade_counter = 0;
+	//fade_counter = 0;
 	
 	xSemaphoreGive(led_mux);	
 	
-	return res;
+	return result;
 }
 
 
@@ -362,7 +409,7 @@ void timer_fun(TimerHandle_t xTimer){
 	}
 	xSemaphoreGive(led_mux);
 	
-	fade_counter = 0;
+	//fade_counter = 0;
 	
 	xTimerDelete(xTimer, 100); //delete timer
 	timer_is_running = false;
@@ -450,7 +497,7 @@ int8_t timer_run(char *inputs){
 				//start channel B
 				fade_up_channel(LEDC_CHANNEL_B, brgh, fade_time);
 		}
-		fade_counter = 0;
+		//fade_counter = 0;
 	}
 	//start timer
 	timer = xTimerCreate("timer",
@@ -483,15 +530,15 @@ int8_t timer_run(char *inputs){
 *
 * set channel, called after http PUT method
 * output:
+*	0 - value is ok, but not changed (the same as previous one)
 *	1 - value is changed, subscribers will be informed
-* 	0 - value is ok, but not changed (the same as previous one)
 *  -1 - error
 *
 *******************************************************************/
-int8_t set_channel(char *new_value_str){
+int16_t set_channel(char *new_value_str){
 	bool channel_is_changed = false;
 	char *buff = NULL;
-	int8_t res = -1;
+	int16_t result = 0;
 	
 	//in websocket quotation mark is not removed
 	//(in http should be the same but is not)
@@ -517,11 +564,10 @@ int8_t set_channel(char *new_value_str){
 					prev_current_channel = current_channel;
 					current_channel = i;
 					channel_is_changed = true;
-					res = 1;
 				}
 				else{
 					channel_is_changed = false;
-					res = 0;
+					result = 1;
 				}
 				break;
 			}
@@ -534,7 +580,8 @@ int8_t set_channel(char *new_value_str){
 
 	//if channel is changed when device is ON then switch OFF previous channel
 	//and switch ON new channel
-	if ((channel_is_changed == true) && (device_is_on == true) && (fade_counter == 0)){
+	if ((channel_is_changed == true) && (device_is_on == true) && 
+		(fade_is_running == false)){
 		switch (prev_current_channel){
 			case CH_A:
 				if (current_channel == CH_B){
@@ -570,9 +617,7 @@ int8_t set_channel(char *new_value_str){
 	}
 	free(buff);
 	
-	fade_counter = 0;
-	
-	return res;
+	return result;
 }
 
 
