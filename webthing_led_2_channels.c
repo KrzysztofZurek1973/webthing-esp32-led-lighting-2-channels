@@ -361,10 +361,8 @@ int16_t set_on_off(char *new_value_str){
 		result = 1;
 	}
 	else{
-		result = -1;
+		result = 0;
 	}
-	
-	//fade_counter = 0;
 	
 	xSemaphoreGive(led_mux);	
 	
