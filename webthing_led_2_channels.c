@@ -158,7 +158,7 @@ int8_t fade_up_channel(ledc_channel_t ch, int32_t brgh, int32_t ft){
     
     if (fade_is_running == false){
     	fade_is_running = true;
-    	//unblock "fade_is_ruuning" after fade finished + 1 sec
+    	//unblock "fade_is_ruuning" after fade finished
    		fade_timer = xTimerCreate("fade_timer",
 								pdMS_TO_TICKS(ft) + 5,
 								pdFALSE,
@@ -438,7 +438,7 @@ void timer_fun(TimerHandle_t xTimer){
  *
  * timer action
  * inputs:
- * 		- minutes of turn ON in json, e.g.: "duration":10
+ * 		- minutes of turn OFF in json, e.g.: "duration":10
  *
  * *******************************************************/
 int8_t timer_run(char *inputs){
@@ -562,10 +562,10 @@ int16_t set_channel(char *new_value_str){
 					prev_current_channel = current_channel;
 					current_channel = i;
 					channel_is_changed = true;
+					result = 1;
 				}
 				else{
 					channel_is_changed = false;
-					result = 1;
 				}
 				break;
 			}
