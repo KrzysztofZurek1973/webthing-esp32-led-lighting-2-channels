@@ -32,10 +32,10 @@ typedef enum {CHANNEL = 0, BRIGHTNESS = 1, FADE = 2} nvs_data_type_t;
 //relays
 #define GPIO_CH_A			(CONFIG_CHANNEL_A_GPIO)
 #define GPIO_CH_B			(CONFIG_CHANNEL_B_GPIO)
-#define GPIO_RELAY_MASK 	((1ULL << GPIO_CH_A) | (1ULL << GPIO_CH_B))
-#define ESP_INTR_FLAG_DEFAULT 0
 #define LEDC_CHANNEL_A		LEDC_CHANNEL_0
 #define LEDC_CHANNEL_B		LEDC_CHANNEL_1
+
+#define ESP_INTR_FLAG_DEFAULT 0
 
 xSemaphoreHandle led_mux;
 xTaskHandle led_task;
@@ -60,7 +60,7 @@ at_type_t leds_type;
 static bool device_is_on = false;
 property_t *prop_on;
 at_type_t on_prop_type;
-int16_t set_on_off(char *new_value_str); //switch ON/OFF
+int16_t set_on_off(char *name, char *new_value_str); //switch ON/OFF
 char on_prop_id[] = "on";
 char on_prop_disc[] = "on-off state";
 char on_prop_attype_str[] = "OnOffProperty";
@@ -70,7 +70,7 @@ char on_prop_title[] = "ON/OFF";
 property_t *prop_channel;
 at_type_t channel_prop_type;
 enum_item_t enum_ch_A, enum_ch_B, enum_ch_AB;
-int16_t set_channel(char *new_value_str);
+int16_t set_channel(char *name, char *new_value_str);
 char channel_prop_id[] = "channel";
 char channel_prop_disc[] = "Channel";
 char channel_prop_attype_str[] = "ChannelProperty";
@@ -193,7 +193,7 @@ void fade_timer_fun(TimerHandle_t xTimer){
  * set fading time in milisecond, range 100 .. 10000 msec
  *
  * ****************************************************************/
-int16_t fade_time_set(char *new_value_str){
+int16_t fade_time_set(char *name, char *new_value_str){
 	int32_t ft;
 	int16_t result = 0;
 	
@@ -231,7 +231,7 @@ int16_t fade_time_set(char *new_value_str){
  *	   -1 - error
  *
  * ****************************************************************/
-int16_t brightness_set(char *new_value_str){
+int16_t brightness_set(char *name, char *new_value_str){
 	int32_t brgh;
 	int16_t result = 0;
 	
@@ -294,7 +294,7 @@ int16_t brightness_set(char *new_value_str){
  *	   -1 - error
  *
  * *****************************************************************/
-int16_t set_on_off(char *new_value_str){
+int16_t set_on_off(char *name, char *new_value_str){
 	int32_t brgh = 0;
 	bool state_change = false;
 	int16_t result = 0;
@@ -531,7 +531,7 @@ int16_t timer_run(char *inputs){
 *  -1 - error
 *
 *******************************************************************/
-int16_t set_channel(char *new_value_str){
+int16_t set_channel(char *name, char *new_value_str){
 	bool channel_is_changed = false;
 	char *buff = NULL;
 	int16_t result = 0;
